@@ -51,55 +51,35 @@ File:
 Contents:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 
 SCREENSHOT_DIR="$HOME/screenshots"
-FSWATCH="/opt/homebrew/bin/fswatch"
+LAST_OPENED=""
 
-# Debounce state
-LAST_EVENT_TIME=0
-DEBOUNCE_MS=700
+echo "Watching $SCREENSHOT_DIR for screenshots..."
 
-"$FSWATCH" "$SCREENSHOT_DIR" | while IFS= read -r event
-do
-    # Ignore non-png files
-    [[ "$event" != *.png ]] && continue
+fswatch -o "$SCREENSHOT_DIR" | while read; do
+  # Let macOS finish writing files
+  sleep 0.5
 
-    filename=$(basename "$event")
+  latest=$(find "$SCREENSHOT_DIR" \
+    -type f \
+    -name "*.png" \
+    ! -name ".*" \
+    -print0 | xargs -0 ls -t | head -n 1)
 
-    # Ignore hidden/temp files
-    [[ "$filename" == .* ]] && continue
+  [[ -z "$latest" ]] && continue
 
-    # Record latest event timestamp (milliseconds)
-    LAST_EVENT_TIME=$(python3 -c 'import time; print(int(time.time() * 1000))')
+  # Prevent reopening same screenshot repeatedly
+  if [[ "$latest" == "$LAST_OPENED" ]]; then
+    continue
+  fi
 
-    (
-        CURRENT_EVENT_TIME=$LAST_EVENT_TIME
+  LAST_OPENED="$latest"
 
-        # Wait for additional screenshot events to settle
-        sleep 0.7
+  echo "Opening: $latest"
 
-        # Only continue if no newer events arrived
-        if [[ "$CURRENT_EVENT_TIME" == "$LAST_EVENT_TIME" ]]; then
-
-            # Grab newest screenshots (supports multi-monitor screenshots)
-            mapfile -t newest_files < <(
-                ls -t "$SCREENSHOT_DIR"/*.png 2>/dev/null | head -5
-            )
-
-            if (( ${#newest_files[@]} > 0 )); then
-                echo "OPENING ${#newest_files[@]} SCREENSHOT(S)"
-
-                for file in "${newest_files[@]}"
-                do
-                    echo "  $file"
-                done
-
-                # Open all screenshots together without stealing focus repeatedly
-                open -g -a Preview "${newest_files[@]}"
-            fi
-        fi
-    ) &
+  open -a Preview "$latest"
 done
 ```
 
