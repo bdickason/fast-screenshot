@@ -58,8 +58,9 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 SCREENSHOT_DIR="$HOME/screenshots"
 FSWATCH="/opt/homebrew/bin/fswatch"
 
-LAST_OPENED=""
-LAST_TIME=0
+RECENT_FILE="/tmp/screenshotwatcher_recent"
+
+touch "$RECENT_FILE"
 
 echo "Watching $SCREENSHOT_DIR for screenshots..." >> /tmp/screenshotwatcher.log
 
@@ -67,30 +68,31 @@ echo "Watching $SCREENSHOT_DIR for screenshots..." >> /tmp/screenshotwatcher.log
 do
     echo "EVENT: $event" >> /tmp/screenshotwatcher.log
 
-    # Only react to png files
     [[ "$event" != *.png ]] && continue
 
     filename=$(basename "$event")
-
-    # Ignore hidden/temp files
     [[ "$filename" == .* ]] && continue
 
-    # Ensure file exists
     [[ ! -f "$event" ]] && continue
 
-    now=$(date +%s)
-
-    # Ignore repeated events for same file within 5 seconds
-    if [[ "$event" == "$LAST_OPENED" ]] && (( now - LAST_TIME < 5 )); then
-        echo "SKIPPING DUPLICATE: $event" >> /tmp/screenshotwatcher.log
+    # Skip files opened recently
+    if grep -Fxq "$event" "$RECENT_FILE"; then
+        echo "SKIPPING RECENT: $event" >> /tmp/screenshotwatcher.log
         continue
     fi
 
-    LAST_OPENED="$event"
-    LAST_TIME=$now
+    # Remember file
+    echo "$event" >> "$RECENT_FILE"
 
-    # Give macOS time to finish writing
-    sleep 0.4
+    # Cleanup cache after delay
+    (
+        sleep 10
+
+        grep -Fxv "$event" "$RECENT_FILE" > "${RECENT_FILE}.tmp"
+        mv "${RECENT_FILE}.tmp" "$RECENT_FILE"
+    ) &
+
+    sleep 0.3
 
     echo "OPENING: $event" >> /tmp/screenshotwatcher.log
 
