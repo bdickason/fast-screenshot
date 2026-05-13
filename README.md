@@ -51,35 +51,50 @@ File:
 Contents:
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 SCREENSHOT_DIR="$HOME/screenshots"
+FSWATCH="/opt/homebrew/bin/fswatch"
+
 LAST_OPENED=""
+LAST_TIME=0
 
-echo "Watching $SCREENSHOT_DIR for screenshots..."
+echo "Watching $SCREENSHOT_DIR for screenshots..." >> /tmp/screenshotwatcher.log
 
-fswatch -o "$SCREENSHOT_DIR" | while read; do
-  # Let macOS finish writing files
-  sleep 0.5
+"$FSWATCH" "$SCREENSHOT_DIR" | while IFS= read -r event
+do
+    echo "EVENT: $event" >> /tmp/screenshotwatcher.log
 
-  latest=$(find "$SCREENSHOT_DIR" \
-    -type f \
-    -name "*.png" \
-    ! -name ".*" \
-    -print0 | xargs -0 ls -t | head -n 1)
+    # Only react to png files
+    [[ "$event" != *.png ]] && continue
 
-  [[ -z "$latest" ]] && continue
+    filename=$(basename "$event")
 
-  # Prevent reopening same screenshot repeatedly
-  if [[ "$latest" == "$LAST_OPENED" ]]; then
-    continue
-  fi
+    # Ignore hidden/temp files
+    [[ "$filename" == .* ]] && continue
 
-  LAST_OPENED="$latest"
+    # Ensure file exists
+    [[ ! -f "$event" ]] && continue
 
-  echo "Opening: $latest"
+    now=$(date +%s)
 
-  open -a Preview "$latest"
+    # Ignore repeated events for same file within 5 seconds
+    if [[ "$event" == "$LAST_OPENED" ]] && (( now - LAST_TIME < 5 )); then
+        echo "SKIPPING DUPLICATE: $event" >> /tmp/screenshotwatcher.log
+        continue
+    fi
+
+    LAST_OPENED="$event"
+    LAST_TIME=$now
+
+    # Give macOS time to finish writing
+    sleep 0.4
+
+    echo "OPENING: $event" >> /tmp/screenshotwatcher.log
+
+    open -g -a Preview "$event"
 done
 ```
 
