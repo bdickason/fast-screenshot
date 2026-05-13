@@ -54,32 +54,52 @@ Contents:
 #!/bin/bash
 
 SCREENSHOT_DIR="$HOME/screenshots"
-LAST_OPENED=""
-LAST_TIME=0
-
 FSWATCH="/opt/homebrew/bin/fswatch"
+
+# Debounce state
+LAST_EVENT_TIME=0
+DEBOUNCE_MS=700
 
 "$FSWATCH" "$SCREENSHOT_DIR" | while IFS= read -r event
 do
+    # Ignore non-png files
+    [[ "$event" != *.png ]] && continue
+
     filename=$(basename "$event")
 
+    # Ignore hidden/temp files
     [[ "$filename" == .* ]] && continue
-    [[ "$filename" != *.png ]] && continue
 
-    now=$(date +%s)
+    # Record latest event timestamp (milliseconds)
+    LAST_EVENT_TIME=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
-    if [[ "$event" == "$LAST_OPENED" ]] && (( now - LAST_TIME < 2 )); then
-        continue
-    fi
+    (
+        CURRENT_EVENT_TIME=$LAST_EVENT_TIME
 
-    LAST_OPENED="$event"
-    LAST_TIME=$now
+        # Wait for additional screenshot events to settle
+        sleep 0.7
 
-    sleep 0.2
+        # Only continue if no newer events arrived
+        if [[ "$CURRENT_EVENT_TIME" == "$LAST_EVENT_TIME" ]]; then
 
-    if [ -f "$event" ]; then
-        open -a Preview "$event"
-    fi
+            # Grab newest screenshots (supports multi-monitor screenshots)
+            mapfile -t newest_files < <(
+                ls -t "$SCREENSHOT_DIR"/*.png 2>/dev/null | head -5
+            )
+
+            if (( ${#newest_files[@]} > 0 )); then
+                echo "OPENING ${#newest_files[@]} SCREENSHOT(S)"
+
+                for file in "${newest_files[@]}"
+                do
+                    echo "  $file"
+                done
+
+                # Open all screenshots together without stealing focus repeatedly
+                open -g -a Preview "${newest_files[@]}"
+            fi
+        fi
+    ) &
 done
 ```
 
